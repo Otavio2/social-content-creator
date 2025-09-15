@@ -3,9 +3,8 @@ import json
 import os
 import random
 from datetime import datetime, timedelta
-from flask import Flask, request
-from telegram import Update, ChatPermissions, InlineKeyboardButton, InlineKeyboardMarkup, Bot
-from telegram.ext import Dispatcher, CommandHandler, MessageHandler, filters, CallbackQueryHandler
+from telegram import Update, ChatPermissions, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
 from apscheduler.schedulers.background import BackgroundScheduler
 
 # ===== CONFIGURAÇÃO =====
@@ -25,19 +24,12 @@ BACKUP_INTERVAL_MIN = 30
 DATA_FILE = "users.json"
 USUARIOS = {}
 REPUTACAO = {}
-
-STICKERS = [
-    "CAACAgIAAxkBAAEBYzBfP1W6yZJ8q3fOtmq5yN71-4R8CwACXAADwZxgDk3yP4X3AxxXiHgQ",
-]
+STICKERS = ["CAACAgIAAxkBAAEBYzBfP1W6yZJ8q3fOtmq5yN71-4R8CwACXAADwZxgDk3yP4X3AxxXiHgQ"]
+VOTEBAN = {}
 
 # ===== LOGGING =====
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# ===== FLASK APP =====
-app = Flask(__name__)
-bot = Bot(TOKEN)
-dispatcher = Dispatcher(bot, None, workers=0, use_context=True)
 
 # ===== FUNÇÕES DE ARQUIVO =====
 def load_data():
@@ -53,7 +45,7 @@ def load_data():
 
 def save_data():
     with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump({"users":USUARIOS,"reputation":REPUTACAO}, f, indent=2, ensure_ascii=False)
+        json.dump({"users": USUARIOS, "reputation": REPUTACAO}, f, indent=2, ensure_ascii=False)
 
 def backup():
     save_data()
@@ -63,53 +55,53 @@ def backup():
         json.dump({"users":USUARIOS,"reputation":REPUTACAO}, f, indent=2, ensure_ascii=False)
     logger.info(f"Backup salvo em {backup_file}")
 
-# ===== COMANDOS =====
-def start(update: Update, context):
-    update.message.reply_text("🤖 Bot admin ativo!")
+# ===== HANDLERS =====
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🤖 Bot ativo!")
 
-def regras(update: Update, context):
-    update.message.reply_text(MENSAGEM_REGRAS)
+async def regras(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(MENSAGEM_REGRAS)
 
-def boas_vindas(update: Update, context):
+async def boas_vindas(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for user in update.message.new_chat_members:
         msg = MENSAGEM_BOAS_VINDAS.format(user=user.mention_html())
         keyboard = [[InlineKeyboardButton("✅ Aceitar regras", callback_data=f"aceitar_{user.id}")]]
-        update.message.reply_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
-        update.effective_chat.restrict_member(user.id, ChatPermissions(can_send_messages=False))
+        await update.message.reply_text(msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
+        await update.effective_chat.restrict_member(user.id, ChatPermissions(can_send_messages=False))
 
-def aceitar_regras(update: Update, context):
+async def aceitar_regras(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = int(query.data.split("_")[1])
-    bot.restrict_chat_member(query.message.chat.id, user_id, ChatPermissions(can_send_messages=True, can_send_media_messages=True))
-    query.answer("Regras aceitas ✅")
+    await query.bot.restrict_chat_member(query.message.chat.id, user_id, ChatPermissions(can_send_messages=True, can_send_media_messages=True))
+    await query.answer("Regras aceitas ✅")
 
-def ban(update: Update, context):
+async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.reply_to_message:
         user = update.message.reply_to_message.from_user
-        update.effective_chat.ban_member(user.id)
-        update.message.reply_text(f"🚫 {user.mention_html()} banido!", parse_mode="HTML")
+        await update.effective_chat.ban_member(user.id)
+        await update.message.reply_text(f"🚫 {user.mention_html()} banido!", parse_mode="HTML")
 
-def kick(update: Update, context):
+async def kick(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.reply_to_message:
         user = update.message.reply_to_message.from_user
-        update.effective_chat.ban_member(user.id)
-        update.effective_chat.unban_member(user.id)
-        update.message.reply_text(f"👢 {user.mention_html()} expulso!", parse_mode="HTML")
+        await update.effective_chat.ban_member(user.id)
+        await update.effective_chat.unban_member(user.id)
+        await update.message.reply_text(f"👢 {user.mention_html()} expulso!", parse_mode="HTML")
 
-def mute(update: Update, context):
+async def mute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.reply_to_message:
         user = update.message.reply_to_message.from_user
         until = datetime.now() + timedelta(minutes=10)
-        update.effective_chat.restrict_member(user.id, ChatPermissions(), until_date=until)
-        update.message.reply_text(f"🔇 {user.mention_html()} silenciado!", parse_mode="HTML")
+        await update.effective_chat.restrict_member(user.id, ChatPermissions(), until_date=until)
+        await update.message.reply_text(f"🔇 {user.mention_html()} silenciado!", parse_mode="HTML")
 
-def unmute(update: Update, context):
+async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.reply_to_message:
         user = update.message.reply_to_message.from_user
-        update.effective_chat.restrict_member(user.id, ChatPermissions(can_send_messages=True, can_send_media_messages=True))
-        update.message.reply_text(f"🔊 {user.mention_html()} liberado!", parse_mode="HTML")
+        await update.effective_chat.restrict_member(user.id, ChatPermissions(can_send_messages=True, can_send_media_messages=True))
+        await update.message.reply_text(f"🔊 {user.mention_html()} liberado!", parse_mode="HTML")
 
-def warn(update: Update, context):
+async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.reply_to_message:
         user = update.message.reply_to_message.from_user
         uid = str(user.id)
@@ -118,12 +110,12 @@ def warn(update: Update, context):
         save_data()
         warns = USUARIOS[uid]["warns"]
         if warns >= MAX_WARNINGS:
-            update.effective_chat.ban_member(user.id)
-            update.message.reply_text(f"🚫 {user.mention_html()} banido (3/3 warns)!", parse_mode="HTML")
+            await update.effective_chat.ban_member(user.id)
+            await update.message.reply_text(f"🚫 {user.mention_html()} banido (3/3 warns)!", parse_mode="HTML")
         else:
-            update.message.reply_text(f"⚠️ {user.mention_html()} recebeu warn ({warns}/{MAX_WARNINGS}).", parse_mode="HTML")
+            await update.message.reply_text(f"⚠️ {user.mention_html()} recebeu warn ({warns}/{MAX_WARNINGS}).", parse_mode="HTML")
 
-def antiflood(update: Update, context):
+async def antiflood(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     uid = str(user.id)
     now = datetime.now()
@@ -132,19 +124,19 @@ def antiflood(update: Update, context):
     USUARIOS[uid]["msgs"].append(now.isoformat())
     save_data()
     if len(USUARIOS[uid]["msgs"]) > FLOOD_LIMIT:
-        update.effective_chat.restrict_member(user.id, ChatPermissions(can_send_messages=False), until_date=now+timedelta(minutes=TEMPO_MUTE_FLOOD))
-        update.message.reply_text(f"🤐 {user.mention_html()} silenciado por flood!", parse_mode="HTML")
+        await update.effective_chat.restrict_member(user.id, ChatPermissions(can_send_messages=False), until_date=now+timedelta(minutes=TEMPO_MUTE_FLOOD))
+        await update.message.reply_text(f"🤐 {user.mention_html()} silenciado por flood!", parse_mode="HTML")
 
-def filtro(update: Update, context):
+async def filtro(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.lower()
     if any(p in text for p in PROIBIDO) or any(f in text for f in FILTROS):
-        update.message.delete()
-        update.effective_chat.restrict_member(update.message.from_user.id, ChatPermissions(can_send_messages=False), until_date=datetime.now()+timedelta(minutes=TEMPO_MUTE_FILTRO))
-        bot.send_message(ADMIN_LOG_CHAT_ID,f"🚨 Mensagem apagada de {update.message.from_user.mention_html()}",parse_mode="HTML")
+        await update.message.delete()
+        await update.effective_chat.restrict_member(update.message.from_user.id, ChatPermissions(can_send_messages=False), until_date=datetime.now()+timedelta(minutes=TEMPO_MUTE_FILTRO))
+        await context.bot.send_message(ADMIN_LOG_CHAT_ID,f"🚨 Mensagem apagada de {update.message.from_user.mention_html()}",parse_mode="HTML")
 
-def rep(update: Update, context):
+async def rep(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.reply_to_message:
-        update.message.reply_text("Responda a mensagem do usuário para dar reputação (+rep ou -rep).")
+        await update.message.reply_text("Responda a mensagem do usuário para dar reputação (+rep ou -rep).")
         return
     user = update.message.reply_to_message.from_user
     uid = str(user.id)
@@ -154,34 +146,32 @@ def rep(update: Update, context):
     elif update.message.text.startswith("-rep"):
         REPUTACAO[uid] -=1
     save_data()
-    update.message.reply_text(f"{user.mention_html()} agora tem {REPUTACAO[uid]} pontos de reputação",parse_mode="HTML")
+    await update.message.reply_text(f"{user.mention_html()} agora tem {REPUTACAO[uid]} pontos de reputação",parse_mode="HTML")
 
-def ranking(update: Update, context):
+async def ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not REPUTACAO:
-        update.message.reply_text("Nenhum ponto de reputação registrado.")
+        await update.message.reply_text("Nenhum ponto de reputação registrado.")
         return
     rank = sorted(REPUTACAO.items(), key=lambda x:x[1], reverse=True)
     msg = "🏆 Ranking de reputação:\n"
     for i,(uid,pontos) in enumerate(rank[:10],1):
         msg+=f"{i}. [{uid}](tg://user?id={uid}) — {pontos} pts\n"
-    update.message.reply_text(msg,parse_mode="Markdown")
+    await update.message.reply_text(msg,parse_mode="Markdown")
 
-def stats(update: Update, context):
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_users = len(USUARIOS)
     total_warns = sum(u["warns"] for u in USUARIOS.values())
-    update.message.reply_text(f"📊 Estatísticas:\nUsuários monitorados: {total_users}\nWarns totais: {total_warns}")
+    await update.message.reply_text(f"📊 Estatísticas:\nUsuários monitorados: {total_users}\nWarns totais: {total_warns}")
 
-def sticker_dia(update: Update, context):
+async def sticker_dia(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if STICKERS:
         sticker = random.choice(STICKERS)
-        update.message.reply_sticker(sticker)
+        await update.message.reply_sticker(sticker)
 
 # ===== VOTEBAN =====
-VOTEBAN = {}
-
-def voteban(update: Update, context):
+async def voteban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.reply_to_message:
-        update.message.reply_text("Responda a mensagem do usuário que deseja votar banir")
+        await update.message.reply_text("Responda a mensagem do usuário que deseja votar banir")
         return
     user = update.message.reply_to_message.from_user
     uid = str(user.id)
@@ -190,62 +180,58 @@ def voteban(update: Update, context):
     VOTEBAN[chat_id].setdefault(uid,set())
     VOTEBAN[chat_id][uid].add(update.message.from_user.id)
     votos = len(VOTEBAN[chat_id][uid])
-    if votos >=3:  # 3 votos = ban automático
-        update.effective_chat.ban_member(user.id)
-        update.message.reply_text(f"🚫 {user.mention_html()} banido por votação!",parse_mode="HTML")
-        del VOT
+    if votos >= 3:  # 3 votos = ban automático
+        await update.effective_chat.ban_member(user.id)
+        await update.message.reply_text(f"🚫 {user.mention_html()} banido por votação!",parse_mode="HTML")
         del VOTEBAN[chat_id][uid]
     else:
-        update.message.reply_text(f"🗳️ Voto registrado ({votos}/3). Mais {3-votos} votos para banir.")
+        await update.message.reply_text(f"🗳️ Voto registrado ({votos}/3). Mais {3-votos} votos para banir.")
 
-# ===== HANDLER WEBHOOK =====
-@app.route(f"/{TOKEN}", methods=["POST"])
-def webhook():
-    update = Update.de_json(request.get_json(force=True), bot)
-    dispatcher.process_update(update)
-    return "ok"
-
-# ===== CONFIGURAÇÃO HANDLERS =====
+# ===== INICIALIZAÇÃO DO BOT =====
 def main():
     load_data()
+    app = Application.builder().token(TOKEN).build()
 
     # Comandos básicos
-    dispatcher.add_handler(CommandHandler("start", start))
-    dispatcher.add_handler(CommandHandler("regras", regras))
-    dispatcher.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, boas_vindas))
-    dispatcher.add_handler(CallbackQueryHandler(aceitar_regras, pattern="^aceitar_"))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("regras", regras))
+    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, boas_vindas))
+    app.add_handler(CallbackQueryHandler(aceitar_regras, pattern="^aceitar_"))
 
     # Admin
-    dispatcher.add_handler(CommandHandler("ban", ban))
-    dispatcher.add_handler(CommandHandler("kick", kick))
-    dispatcher.add_handler(CommandHandler("mute", mute))
-    dispatcher.add_handler(CommandHandler("unmute", unmute))
-    dispatcher.add_handler(CommandHandler("warn", warn))
+    app.add_handler(CommandHandler("ban", ban))
+    app.add_handler(CommandHandler("kick", kick))
+    app.add_handler(CommandHandler("mute", mute))
+    app.add_handler(CommandHandler("unmute", unmute))
+    app.add_handler(CommandHandler("warn", warn))
 
     # Anti-flood e filtro
-    dispatcher.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, antiflood))
-    dispatcher.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, filtro))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, antiflood))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, filtro))
 
     # Reputação e ranking
-    dispatcher.add_handler(MessageHandler(filters.Regex(r"^\+rep$|^\-rep$"), rep))
-    dispatcher.add_handler(CommandHandler("ranking", ranking))
+    app.add_handler(MessageHandler(filters.Regex(r"^\+rep$|^\-rep$"), rep))
+    app.add_handler(CommandHandler("ranking", ranking))
 
     # Estatísticas e sticker
-    dispatcher.add_handler(CommandHandler("stats", stats))
-    dispatcher.add_handler(CommandHandler("sticker", sticker_dia))
+    app.add_handler(CommandHandler("stats", stats))
+    app.add_handler(CommandHandler("sticker", sticker_dia))
 
     # Voteban
-    dispatcher.add_handler(MessageHandler(filters.Regex(r"^/voteban$"), voteban))
+    app.add_handler(MessageHandler(filters.Regex(r"^/voteban$"), voteban))
 
     # Scheduler
     scheduler = BackgroundScheduler()
     scheduler.add_job(backup, 'interval', minutes=BACKUP_INTERVAL_MIN)
     scheduler.start()
 
-    # Define webhook
-    bot.set_webhook(url=WEBHOOK_URL)
-    logger.info(f"Webhook configurado em {WEBHOOK_URL}")
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    # Webhook
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=int(os.environ.get("PORT", 5000)),
+        url_path=TOKEN,
+        webhook_url=WEBHOOK_URL
+    )
 
 if __name__ == "__main__":
     main()
