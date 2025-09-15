@@ -1,12 +1,7 @@
 import os
 import logging
 import subprocess
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    InputFile,
-)
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -16,14 +11,12 @@ from telegram.ext import (
     filters,
 )
 from PIL import Image
-import asyncio
 
 # --- CONFIGURAÇÃO ---
 TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}/webhook")
 PORT = int(os.environ.get("PORT", 10000))
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Ex.: https://seu-bot.onrender.com/webhook
 
-# Logs
 logging.basicConfig(level=logging.INFO)
 
 # --- APLICATIVO TELEGRAM ---
@@ -35,8 +28,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🖼️ Imagem", callback_data="imagem")],
         [InlineKeyboardButton("🎞️ Animada", callback_data="animada")],
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Escolha o tipo de figurinha:", reply_markup=reply_markup)
+    await update.message.reply_text(
+        "Escolha o tipo de figurinha:", reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -50,29 +44,23 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     modo = context.user_data.get("modo")
-
-    # --- FIGURINHA NORMAL ---
+    
     if modo == "imagem" and update.message.photo:
         file = await update.message.photo[-1].get_file()
         file_path = "temp.jpg"
         await file.download_to_drive(file_path)
-
         img = Image.open(file_path)
-        img.thumbnail((512, 512))
+        img.thumbnail((512,512))
         webp_path = "sticker.webp"
         img.save(webp_path, "WEBP")
-
-        await update.message.reply_sticker(sticker=InputFile(webp_path))
-
+        await update.message.reply_sticker(InputFile(webp_path))
         os.remove(file_path)
         os.remove(webp_path)
 
-    # --- FIGURINHA ANIMADA ---
     elif modo == "animada" and (update.message.animation or update.message.video):
         file = await (update.message.animation or update.message.video).get_file()
         file_path = "temp.mp4"
         await file.download_to_drive(file_path)
-
         webm_path = "sticker.webm"
         subprocess.run([
             "ffmpeg", "-y", "-i", file_path,
@@ -80,9 +68,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "-c:v", "libvpx-vp9", "-b:v", "500K",
             webm_path
         ], check=True)
-
-        await update.message.reply_sticker(sticker=InputFile(webm_path))
-
+        await update.message.reply_sticker(InputFile(webm_path))
         os.remove(file_path)
         os.remove(webm_path)
 
@@ -91,16 +77,14 @@ application.add_handler(CommandHandler("start", start))
 application.add_handler(CallbackQueryHandler(button))
 application.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO | filters.ANIMATION, handle_media))
 
-# --- EXECUÇÃO ---
+# --- EXECUÇÃO COM WEBHOOK ---
 if __name__ == "__main__":
-    print("🤖 Bot rodando no Render com webhook e botões!")
-
-    # Registra webhook automaticamente
-    asyncio.run(application.bot.set_webhook(f"{WEBHOOK_URL}"))
-
-    # Roda webhook do Telegram (integrado ao Flask não é mais necessário)
-    application.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        webhook_url=f"{WEBHOOK_URL}"
-    )
+    import asyncio
+    async def main():
+        await application.bot.set_webhook(WEBHOOK_URL)
+        await application.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            webhook_url=WEBHOOK_URL
+        )
+    asyncio.run(main())
