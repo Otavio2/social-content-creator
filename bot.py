@@ -2,8 +2,8 @@ import os
 import io
 import subprocess
 from flask import Flask, request
-from telegram import Update, Bot, Chat, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Dispatcher, ContextTypes, CallbackQueryHandler, MessageHandler, filters
+from telegram import Update, Chat, InlineKeyboardButton, InlineKeyboardMarkup, Bot
+from telegram.ext import Application, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 from PIL import Image, ImageDraw, ImageFont
 import asyncio
 
@@ -17,25 +17,23 @@ STICKER_SET_TITLE_STATIC = "Figurinhas Normais do MeuBot"
 STICKER_SET_NAME_ANIMATED = "MeuBotAnimated_by_MeuBot"
 STICKER_SET_TITLE_ANIMATED = "Figurinhas Animadas doMeuBot"
 
+app = Flask(__name__)
 bot = Bot(BOT_TOKEN)
-dispatcher = Dispatcher(bot, None, workers=0, use_context=True)
-flask_app = Flask(__name__)
+application = Application.builder().token(BOT_TOKEN).build()
 
-# Armazena temporariamente o arquivo enviado pelo usuário em memória
-user_files = {}
+user_files = {}  # armazena arquivos temporariamente
 
-# ===========================
-# Função para criar figurinha
-# ===========================
+# -----------------------------
+# Função para processar figurinha
+# -----------------------------
 async def process_sticker(user_id, is_animated, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in user_files:
         return
 
     file_bytes = user_files[user_id]
-    del user_files[user_id]  # limpa memória após uso
+    del user_files[user_id]
 
     if is_animated:
-        # Vídeo animado
         temp_input = f"/tmp/{user_id}.mp4"
         temp_output = f"/tmp/{user_id}.webm"
         with open(temp_input, "wb") as f:
@@ -49,16 +47,19 @@ async def process_sticker(user_id, is_animated, context: ContextTypes.DEFAULT_TY
 
         with open(temp_output, "rb") as sticker_file:
             try:
-                await bot.add_sticker_to_set(user_id=user_id, name=STICKER_SET_NAME_ANIMATED,
-                                             webm_sticker=sticker_file, emojis="🔥")
+                await context.bot.add_sticker_to_set(user_id=user_id,
+                                                     name=STICKER_SET_NAME_ANIMATED,
+                                                     webm_sticker=sticker_file, emojis="🔥")
             except:
-                await bot.create_new_sticker_set(user_id=user_id, name=STICKER_SET_NAME_ANIMATED,
-                                                 title=STICKER_SET_TITLE_ANIMATED,
-                                                 stickers=[{"webm_sticker": sticker_file, "emoji": "🔥"}])
-            await bot.send_sticker(chat_id=user_id, sticker=open(temp_output, "rb"))
+                sticker_file.seek(0)
+                await context.bot.create_new_sticker_set(user_id=user_id,
+                                                         name=STICKER_SET_NAME_ANIMATED,
+                                                         title=STICKER_SET_TITLE_ANIMATED,
+                                                         stickers=[{"webm_sticker": sticker_file, "emoji": "🔥"}])
+            with open(temp_output, "rb") as sfile:
+                await context.bot.send_sticker(chat_id=user_id, sticker=sfile)
 
     else:
-        # Imagem normal
         img = Image.open(file_bytes).convert("RGBA")
         img.thumbnail((512, 512), Image.Resampling.LANCZOS)
 
@@ -73,26 +74,27 @@ async def process_sticker(user_id, is_animated, context: ContextTypes.DEFAULT_TY
         bio.seek(0)
 
         try:
-            await bot.add_sticker_to_set(user_id=user_id, name=STICKER_SET_NAME_STATIC,
-                                         png_sticker=bio, emojis="😀")
+            await context.bot.add_sticker_to_set(user_id=user_id,
+                                                 name=STICKER_SET_NAME_STATIC,
+                                                 png_sticker=bio, emojis="😀")
         except:
             bio.seek(0)
-            await bot.create_new_sticker_set(user_id=user_id, name=STICKER_SET_NAME_STATIC,
-                                             title=STICKER_SET_TITLE_STATIC,
-                                             stickers=[{"png_sticker": bio, "emoji": "😀"}])
+            await context.bot.create_new_sticker_set(user_id=user_id,
+                                                     name=STICKER_SET_NAME_STATIC,
+                                                     title=STICKER_SET_TITLE_STATIC,
+                                                     stickers=[{"png_sticker": bio, "emoji": "😀"}])
         bio.seek(0)
-        await bot.send_sticker(chat_id=user_id, sticker=bio)
+        await context.bot.send_sticker(chat_id=user_id, sticker=bio)
 
-# ===========================
-# Recebe mensagens do usuário
-# ===========================
+# -----------------------------
+# Mensagem recebida
+# -----------------------------
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or update.message.chat.type != Chat.PRIVATE:
         return
 
     user_id = update.effective_user.id
 
-    # Guarda arquivo em memória
     if update.message.photo:
         file = await update.message.photo[-1].get_file()
         bio = io.BytesIO()
@@ -109,17 +111,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📌 Envie uma imagem, GIF ou vídeo curto para criar figurinha.")
         return
 
-    # Mostra botões para escolha
-    keyboard = [
-        [InlineKeyboardButton("Figurinha Normal", callback_data="normal"),
-         InlineKeyboardButton("Figurinha Animada", callback_data="animated")]
-    ]
+    keyboard = [[InlineKeyboardButton("Figurinha Normal", callback_data="normal"),
+                 InlineKeyboardButton("Figurinha Animada", callback_data="animated")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Escolha o tipo de figurinha:", reply_markup=reply_markup)
 
-# ===========================
-# Callback dos botões
-# ===========================
+# -----------------------------
+# Botão clicado
+# -----------------------------
 async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -130,23 +129,23 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "animated":
         await process_sticker(user_id, is_animated=True, context=context)
 
-# ===========================
+# -----------------------------
 # Webhook Flask
-# ===========================
-@flask_app.route("/webhook", methods=["POST"])
+# -----------------------------
+@app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json(force=True)
     update = Update.de_json(data, bot)
-    asyncio.run(dispatcher.process_update(update))
+    asyncio.run(application.update_queue.put(update))
     return "OK", 200
 
-# ===========================
+# -----------------------------
 # Inicialização
-# ===========================
-dispatcher.add_handler(MessageHandler(filters.ALL, handle_message))
-dispatcher.add_handler(CallbackQueryHandler(handle_button))
+# -----------------------------
+application.add_handler(MessageHandler(filters.ALL, handle_message))
+application.add_handler(CallbackQueryHandler(handle_button))
 
 if __name__ == "__main__":
     asyncio.run(bot.set_webhook(WEBHOOK_URL))
     print("🤖 Bot rodando no modo webhook com botões!")
-    flask_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
