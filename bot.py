@@ -4,9 +4,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQuer
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # ========= CONFIGURAÇÕES =========
-TOKEN = "SEU_TOKEN_DO_BOT"          # <- coloque seu token do BotFather
-RAWG_KEY = "SUA_RAWG_API_KEY"       # <- pegue em https://rawg.io/apidocs
-
+TOKEN = "SEU_TOKEN_DO_BOT"  # <- coloque aqui o token do BotFather
 LANGS = ["pt", "en", "es"]
 DEFAULT_LANG = "en"
 
@@ -17,11 +15,10 @@ MESSAGES = {
         "es": "👋 ¡Hola! Elige tu idioma:"
     },
     "menu": {
-        "pt": "📌 Comandos:\n/games - lançamentos\n/free - jogos grátis\n/deals - promoções\n/pokemon - pokémon\n/cards - baralho\n/dnd - D&D feitiços\n/board - boardgames",
-        "en": "📌 Commands:\n/games - new releases\n/free - free games\n/deals - deals\n/pokemon - pokémon\n/cards - cards\n/dnd - D&D spells\n/board - boardgames",
-        "es": "📌 Comandos:\n/games - lanzamientos\n/free - juegos gratis\n/deals - ofertas\n/pokemon - pokémon\n/cards - baraja\n/dnd - D&D conjuros\n/board - juegos de mesa"
+        "pt": "📌 Comandos:\n/free - jogos grátis\n/deals - promoções\n/pokemon - pokémon\n/cards - baralho\n/dnd - feitiços D&D\n/board - jogos de tabuleiro",
+        "en": "📌 Commands:\n/free - free games\n/deals - deals\n/pokemon - pokémon\n/cards - cards\n/dnd - D&D spells\n/board - boardgames",
+        "es": "📌 Comandos:\n/free - juegos gratis\n/deals - ofertas\n/pokemon - pokémon\n/cards - baraja\n/dnd - conjuros D&D\n/board - juegos de mesa"
     },
-    "games": {"pt": "🎮 Últimos lançamentos:", "en": "🎮 Latest releases:", "es": "🎮 Últimos lanzamientos:"},
     "free": {"pt": "🆓 Jogos grátis:", "en": "🆓 Free games:", "es": "🆓 Juegos gratis:"},
     "deals": {"pt": "💸 Promoções:", "en": "💸 Deals:", "es": "💸 Ofertas:"},
     "pokemon": {"pt": "🐱‍👤 Pokémon:", "en": "🐱‍👤 Pokémon:", "es": "🐱‍👤 Pokémon:"},
@@ -33,23 +30,18 @@ MESSAGES = {
 # Idioma por usuário
 user_lang = {}
 # Cache em memória
-cache = {"games": [], "free": [], "deals": [], "pokemon": [], "cards": [], "dnd": [], "board": []}
+cache = {"free": [], "deals": [], "pokemon": [], "cards": [], "dnd": [], "board": []}
 
 # ========= FUNÇÕES DE API =========
-def fetch_rawg():
-    url = f"https://api.rawg.io/api/games?key={RAWG_KEY}&dates=2024-01-01,2025-12-31&ordering=-released"
-    r = requests.get(url).json()
-    return [f"{g['name']} ({g['released']})" for g in r.get("results", [])[:5]]
-
 def fetch_freetogame():
     url = "https://www.freetogame.com/api/games"
     r = requests.get(url).json()
     return [f"{g['title']} - {g['genre']}" for g in r[:5]]
 
-def fetch_deals():
-    url = "https://www.cheapshark.com/api/1.0/deals"
+def fetch_gamerpower():
+    url = "https://www.gamerpower.com/api/giveaways"
     r = requests.get(url).json()
-    return [f"{g['title']} - {g['salePrice']}$ (Normal: {g['normalPrice']}$)" for g in r[:5]]
+    return [f"{g['title']} - {g['platforms']} ({g['end_date']})" for g in r[:5]]
 
 def fetch_pokemon():
     url = "https://pokeapi.co/api/v2/pokemon?limit=5"
@@ -67,18 +59,15 @@ def fetch_dnd():
     return [s['name'] for s in r.get("results", [])[:5]]
 
 def fetch_board():
-    url = "https://boardgamegeek.com/xmlapi2/hot?type=boardgame"
-    r = requests.get(url)
-    import xml.etree.ElementTree as ET
-    root = ET.fromstring(r.content)
-    return [i.attrib['name'] for i in root.findall(".//item")[:5]]
+    url = "https://api.boardgameatlas.com/api/search?client_id=JLBr5npPhV&limit=5"
+    r = requests.get(url).json()
+    return [g['name'] for g in r.get("games", [])]
 
 # Atualiza cache
 def update_cache():
     try:
-        cache["games"] = fetch_rawg()
         cache["free"] = fetch_freetogame()
-        cache["deals"] = fetch_deals()
+        cache["deals"] = fetch_gamerpower()
         cache["pokemon"] = fetch_pokemon()
         cache["cards"] = fetch_cards()
         cache["dnd"] = fetch_dnd()
@@ -104,7 +93,6 @@ async def send_list(update: Update, key: str):
     text = MESSAGES[key][lang] + "\n\n" + "\n".join(cache[key] or ["⚠️ Nenhum dado"])
     await update.message.reply_text(text)
 
-async def games(update: Update, ctx: ContextTypes.DEFAULT_TYPE): await send_list(update, "games")
 async def free(update: Update, ctx: ContextTypes.DEFAULT_TYPE): await send_list(update, "free")
 async def deals(update: Update, ctx: ContextTypes.DEFAULT_TYPE): await send_list(update, "deals")
 async def pokemon(update: Update, ctx: ContextTypes.DEFAULT_TYPE): await send_list(update, "pokemon")
@@ -119,7 +107,6 @@ def main():
     # Handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(set_lang))
-    app.add_handler(CommandHandler("games", games))
     app.add_handler(CommandHandler("free", free))
     app.add_handler(CommandHandler("deals", deals))
     app.add_handler(CommandHandler("pokemon", pokemon))
