@@ -1,27 +1,31 @@
 import os
 import subprocess
-from telegram import Update, Chat
-from telegram.ext import Application, MessageHandler, filters, ContextTypes
+from flask import Flask, request
+from telegram import Update, Bot, Chat
+from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
+from telegram.ext import Dispatcher
 from PIL import Image, ImageDraw, ImageFont
+import asyncio
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN")  # Token do bot no Render Secrets
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
 BOT_USERNAME = "@MeuBot"
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # URL do Render com /webhook
 
 # Packs fixos
 STICKER_SET_NAME_STATIC = "MeuBotStatic_by_MeuBot"
 STICKER_SET_TITLE_STATIC = "Figurinhas Normais do MeuBot"
-
 STICKER_SET_NAME_ANIMATED = "MeuBotAnimated_by_MeuBot"
 STICKER_SET_TITLE_ANIMATED = "Figurinhas Animadas do MeuBot"
 
 TEMP_DIR = "temp"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
-async def create_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message:
-        return
+bot = Bot(BOT_TOKEN)
+app = Flask(__name__)
+dispatcher = Dispatcher(bot, None, workers=0, use_context=True)
 
-    if update.message.chat.type != Chat.PRIVATE:
+async def create_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or update.message.chat.type != Chat.PRIVATE:
         return
 
     user = update.effective_user
@@ -46,13 +50,13 @@ async def create_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
         img.save(final_path, "WEBP")
 
         try:
-            await context.bot.add_sticker_to_set(user_id=user_id, name=STICKER_SET_NAME_STATIC,
-                                                 png_sticker=open(final_path, "rb"), emojis="😀")
-        except Exception:
+            await bot.add_sticker_to_set(user_id=user_id, name=STICKER_SET_NAME_STATIC,
+                                         png_sticker=open(final_path, "rb"), emojis="😀")
+        except:
             try:
-                await context.bot.create_new_sticker_set(user_id=user_id, name=STICKER_SET_NAME_STATIC,
-                                                         title=STICKER_SET_TITLE_STATIC,
-                                                         stickers=[{"png_sticker": open(final_path, "rb"), "emoji": "😀"}])
+                await bot.create_new_sticker_set(user_id=user_id, name=STICKER_SET_NAME_STATIC,
+                                                 title=STICKER_SET_TITLE_STATIC,
+                                                 stickers=[{"png_sticker": open(final_path, "rb"), "emoji": "😀"}])
             except:
                 pass
 
@@ -73,13 +77,13 @@ async def create_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ])
 
         try:
-            await context.bot.add_sticker_to_set(user_id=user_id, name=STICKER_SET_NAME_ANIMATED,
-                                                 webm_sticker=open(final_path, "rb"), emojis="🔥")
-        except Exception:
+            await bot.add_sticker_to_set(user_id=user_id, name=STICKER_SET_NAME_ANIMATED,
+                                         webm_sticker=open(final_path, "rb"), emojis="🔥")
+        except:
             try:
-                await context.bot.create_new_sticker_set(user_id=user_id, name=STICKER_SET_NAME_ANIMATED,
-                                                         title=STICKER_SET_TITLE_ANIMATED,
-                                                         stickers=[{"webm_sticker": open(final_path, "rb"), "emoji": "🔥"}])
+                await bot.create_new_sticker_set(user_id=user_id, name=STICKER_SET_NAME_ANIMATED,
+                                                 title=STICKER_SET_TITLE_ANIMATED,
+                                                 stickers=[{"webm_sticker": open(final_path, "rb"), "emoji": "🔥"}])
             except:
                 pass
 
@@ -88,8 +92,20 @@ async def create_sticker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("📌 Envie uma imagem, GIF ou vídeo curto para criar figurinha.")
 
+# =====================
+# Flask endpoint para webhook
+# =====================
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    data = request.get_json(force=True)
+    update = Update.de_json(data, bot)
+    asyncio.run(dispatcher.process_update(update))
+    return "OK", 200
+
+# =====================
+# Configuração inicial do webhook
+# =====================
 if __name__ == "__main__":
-    app = Application.builder().token(BOT_TOKEN).build()
-    app.add_handler(MessageHandler(filters.ALL, create_sticker))
-    print("🤖 Bot rodando apenas em chats privados...")
-    app.run_polling()
+    asyncio.run(bot.set_webhook(WEBHOOK_URL))
+    print("🤖 Bot rodando no modo webhook!")
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
