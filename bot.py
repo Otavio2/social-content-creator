@@ -5,28 +5,25 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFi
 from telegram.ext import (
     Application,
     CommandHandler,
-    MessageHandler,
     CallbackQueryHandler,
+    MessageHandler,
     ContextTypes,
     filters,
 )
 from PIL import Image
 
-# --- CONFIGURAÇÃO ---
-TOKEN = os.getenv("BOT_TOKEN")
+TOKEN = os.environ["BOT_TOKEN"]
 PORT = int(os.environ.get("PORT", 10000))
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Ex.: https://seu-bot.onrender.com/webhook
+WEBHOOK_URL = os.environ["WEBHOOK_URL"]
 
 logging.basicConfig(level=logging.INFO)
+app = Application.builder().token(TOKEN).build()
 
-# --- APLICATIVO TELEGRAM ---
-application = Application.builder().token(TOKEN).build()
-
-# --- HANDLERS ---
+# --- Handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("🖼️ Imagem", callback_data="imagem")],
-        [InlineKeyboardButton("🎞️ Animada", callback_data="animada")],
+        [InlineKeyboardButton("🎞️ Animada", callback_data="animada")]
     ]
     await update.message.reply_text(
         "Escolha o tipo de figurinha:", reply_markup=InlineKeyboardMarkup(keyboard)
@@ -44,7 +41,6 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     modo = context.user_data.get("modo")
-    
     if modo == "imagem" and update.message.photo:
         file = await update.message.photo[-1].get_file()
         file_path = "temp.jpg"
@@ -56,7 +52,6 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_sticker(InputFile(webp_path))
         os.remove(file_path)
         os.remove(webp_path)
-
     elif modo == "animada" and (update.message.animation or update.message.video):
         file = await (update.message.animation or update.message.video).get_file()
         file_path = "temp.mp4"
@@ -72,17 +67,17 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         os.remove(file_path)
         os.remove(webm_path)
 
-# --- REGISTRAR HANDLERS ---
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CallbackQueryHandler(button))
-application.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO | filters.ANIMATION, handle_media))
+# --- Registrar Handlers ---
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CallbackQueryHandler(button))
+app.add_handler(MessageHandler(filters.PHOTO | filters.ANIMATION | filters.VIDEO, handle_media))
 
-# --- EXECUÇÃO COM WEBHOOK ---
+# --- Rodar webhook ---
 if __name__ == "__main__":
     import asyncio
     async def main():
-        await application.bot.set_webhook(WEBHOOK_URL)
-        await application.run_webhook(
+        await app.bot.set_webhook(WEBHOOK_URL)
+        await app.run_webhook(
             listen="0.0.0.0",
             port=PORT,
             webhook_url=WEBHOOK_URL
