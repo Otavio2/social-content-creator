@@ -1,37 +1,42 @@
-import logging
-import json
 import os
+import json
+import logging
 import random
 from datetime import datetime, timedelta
 from telegram import Update, ChatPermissions, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackQueryHandler, ContextTypes
 from apscheduler.schedulers.background import BackgroundScheduler
+from dotenv import load_dotenv
 
-# ===== CONFIGURAÇÃO =====
-TOKEN = "SEU_TOKEN_AQUI"
-WEBHOOK_URL = "https://SEU_DOMINIO.COM/{}".format(TOKEN)
-ADMIN_LOG_CHAT_ID = -1001234567890
+# ===== Carrega .env =====
+load_dotenv()
+TOKEN = os.getenv("TOKEN")
+ADMIN_LOG_CHAT_ID = int(os.getenv("ADMIN_LOG_CHAT_ID"))
+PORT = int(os.getenv("PORT", 5000))
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+
+# ===== Configurações =====
 MAX_WARNINGS = 3
 FLOOD_LIMIT = 5
 PROIBIDO = ["palavrão1", "palavrão2"]
-FILTROS = ["http://", "https://", "t.me/"]
+FILTROS = ["http://","https://","t.me/"]
 MENSAGEM_BOAS_VINDAS = "👋 Bem-vindo {user}! Leia as regras e clique em aceitar."
 MENSAGEM_REGRAS = "📜 Regras do grupo:\n1. Sem spam\n2. Sem links\n3. Respeite todos"
 TEMPO_MUTE_FLOOD = 1
 TEMPO_MUTE_FILTRO = 1
 BACKUP_INTERVAL_MIN = 30
-
 DATA_FILE = "users.json"
+
 USUARIOS = {}
 REPUTACAO = {}
 STICKERS = ["CAACAgIAAxkBAAEBYzBfP1W6yZJ8q3fOtmq5yN71-4R8CwACXAADwZxgDk3yP4X3AxxXiHgQ"]
 VOTEBAN = {}
 
-# ===== LOGGING =====
+# ===== Logging =====
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ===== FUNÇÕES DE ARQUIVO =====
+# ===== Funções de arquivo =====
 def load_data():
     global USUARIOS, REPUTACAO
     if os.path.exists(DATA_FILE):
@@ -52,10 +57,10 @@ def backup():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_file = f"backup_users_{timestamp}.json"
     with open(backup_file, "w", encoding="utf-8") as f:
-        json.dump({"users":USUARIOS,"reputation":REPUTACAO}, f, indent=2, ensure_ascii=False)
+        json.dump({"users": USUARIOS, "reputation": REPUTACAO}, f, indent=2, ensure_ascii=False)
     logger.info(f"Backup salvo em {backup_file}")
 
-# ===== HANDLERS =====
+# ===== Handlers =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🤖 Bot ativo!")
 
@@ -75,6 +80,7 @@ async def aceitar_regras(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.bot.restrict_chat_member(query.message.chat.id, user_id, ChatPermissions(can_send_messages=True, can_send_media_messages=True))
     await query.answer("Regras aceitas ✅")
 
+# ===== Funções admin =====
 async def ban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.reply_to_message:
         user = update.message.reply_to_message.from_user
@@ -101,6 +107,7 @@ async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.effective_chat.restrict_member(user.id, ChatPermissions(can_send_messages=True, can_send_media_messages=True))
         await update.message.reply_text(f"🔊 {user.mention_html()} liberado!", parse_mode="HTML")
 
+# ===== Warn =====
 async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.reply_to_message:
         user = update.message.reply_to_message.from_user
@@ -114,7 +121,7 @@ async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"🚫 {user.mention_html()} banido (3/3 warns)!", parse_mode="HTML")
         else:
             await update.message.reply_text(f"⚠️ {user.mention_html()} recebeu warn ({warns}/{MAX_WARNINGS}).", parse_mode="HTML")
-
+            # ===== Anti-flood =====
 async def antiflood(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     uid = str(user.id)
@@ -127,6 +134,7 @@ async def antiflood(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.effective_chat.restrict_member(user.id, ChatPermissions(can_send_messages=False), until_date=now+timedelta(minutes=TEMPO_MUTE_FLOOD))
         await update.message.reply_text(f"🤐 {user.mention_html()} silenciado por flood!", parse_mode="HTML")
 
+# ===== Filtro de palavras e links =====
 async def filtro(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.lower()
     if any(p in text for p in PROIBIDO) or any(f in text for f in FILTROS):
@@ -134,6 +142,7 @@ async def filtro(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.effective_chat.restrict_member(update.message.from_user.id, ChatPermissions(can_send_messages=False), until_date=datetime.now()+timedelta(minutes=TEMPO_MUTE_FILTRO))
         await context.bot.send_message(ADMIN_LOG_CHAT_ID,f"🚨 Mensagem apagada de {update.message.from_user.mention_html()}",parse_mode="HTML")
 
+# ===== Reputação =====
 async def rep(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.reply_to_message:
         await update.message.reply_text("Responda a mensagem do usuário para dar reputação (+rep ou -rep).")
@@ -158,6 +167,7 @@ async def ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg+=f"{i}. [{uid}](tg://user?id={uid}) — {pontos} pts\n"
     await update.message.reply_text(msg,parse_mode="Markdown")
 
+# ===== Stats e Sticker =====
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_users = len(USUARIOS)
     total_warns = sum(u["warns"] for u in USUARIOS.values())
@@ -168,7 +178,7 @@ async def sticker_dia(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sticker = random.choice(STICKERS)
         await update.message.reply_sticker(sticker)
 
-# ===== VOTEBAN =====
+# ===== Voteban =====
 async def voteban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.reply_to_message:
         await update.message.reply_text("Responda a mensagem do usuário que deseja votar banir")
@@ -187,7 +197,7 @@ async def voteban(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(f"🗳️ Voto registrado ({votos}/3). Mais {3-votos} votos para banir.")
 
-# ===== INICIALIZAÇÃO DO BOT =====
+# ===== Inicialização do bot =====
 def main():
     load_data()
     app = Application.builder().token(TOKEN).build()
@@ -213,14 +223,14 @@ def main():
     app.add_handler(MessageHandler(filters.Regex(r"^\+rep$|^\-rep$"), rep))
     app.add_handler(CommandHandler("ranking", ranking))
 
-    # Estatísticas e sticker
+    # Stats e sticker
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("sticker", sticker_dia))
 
     # Voteban
     app.add_handler(MessageHandler(filters.Regex(r"^/voteban$"), voteban))
 
-    # Scheduler
+    # Scheduler para backup automático
     scheduler = BackgroundScheduler()
     scheduler.add_job(backup, 'interval', minutes=BACKUP_INTERVAL_MIN)
     scheduler.start()
@@ -228,8 +238,8 @@ def main():
     # Webhook
     app.run_webhook(
         listen="0.0.0.0",
-        port=int(os.environ.get("PORT", 5000)),
-        url_path=TOKEN,
+        port=PORT,
+        url_path="webhook",
         webhook_url=WEBHOOK_URL
     )
 
