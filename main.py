@@ -1,158 +1,138 @@
 import os
-import json
-import random
 import requests
+import json
 from flask import Flask, request
 from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime, timedelta
+from threading import Lock
 
-# ================= Configurações =================
-TOKEN = os.environ.get("TELEGRAM_TOKEN")  # Coloque seu token do bot
-BOT_NOME = os.environ.get("BOT_NOME", "Hansel")
-CHAT_ID = os.environ.get("CHAT_ID")  # Coloque seu chat/grupo ID
+# CONFIGURAÇÃO
+BOT_TOKEN = os.environ.get("BOT_TOKEN")  # Seu token do bot
+BOT_NAME = os.environ.get("BOT_NAME", "Hansel")  # Nome do bot
+CHAT_ID = os.environ.get("CHAT_ID")  # Para postagens automáticas
+PORT = int(os.environ.get("PORT", 5000))
 
 app = Flask(__name__)
 
-# Cache em memória
-cache = {
-    "musicas": [],
-    "piadas": [],
-    "quizzes": [],
-    "memes": []
-}
-
-# ================= Funções básicas =================
-def send_telegram_message(chat_id, texto, reply_to_message_id=None):
-    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": texto,
-        "parse_mode": "HTML"
-    }
-    if reply_to_message_id:
-        payload["reply_to_message_id"] = reply_to_message_id
-    requests.post(url, data=payload)
+# CACHE SIMPLES PARA MEMÓRIA SAUDÁVEL
+cache = {"musicas": {}, "piadas": {}, "memes": {}, "quizzes": {}}
+cache_lock = Lock()
 
 def limpar_cache():
-    global cache
-    cache = {"musicas": [], "piadas": [], "quizzes": [], "memes": []}
-    print(f"[{datetime.now()}] Cache limpo com sucesso!")
+    with cache_lock:
+        cache.clear()
+        print(f"[{datetime.now()}] Cache limpo!")
 
-# ================= Funções de conteúdo =================
-def pegar_musica(nome_musica=None):
-    # Exemplo genérico de música
-    musicas_exemplo = [
-        {"nome": "Forró do Amor", "url": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"},
-        {"nome": "Samba da Alegria", "url": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3"},
-        {"nome": "Axé Animado", "url": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3"}
-    ]
-    if nome_musica:
-        # Procurar por nome
-        for m in musicas_exemplo:
-            if nome_musica.lower() in m["nome"].lower():
-                return m
-        return None
-    return random.choice(musicas_exemplo)
-
-def pegar_piada():
-    piadas = [
-        "Por que o computador foi ao médico? Porque estava com vírus!",
-        "O que é um pontinho vermelho no céu? Uma pimenta voadora!",
-        "Por que a bicicleta não conseguiu levantar? Porque estava cansada!"
-    ]
-    return random.choice(piadas)
-
-def pegar_meme():
-    memes = [
-        "https://i.imgflip.com/4/30b1gx.jpg",
-        "https://i.imgflip.com/1bij.jpg",
-        "https://i.imgflip.com/26am.jpg"
-    ]
-    return random.choice(memes)
-
-def pegar_quiz():
-    quizzes = [
-        {
-            "pergunta": "Qual é a capital do Brasil?",
-            "opcoes": ["São Paulo", "Brasília", "Rio de Janeiro", "Salvador"],
-            "resposta": "Brasília"
-        },
-        {
-            "pergunta": "Qual é o maior planeta do sistema solar?",
-            "opcoes": ["Terra", "Júpiter", "Saturno", "Marte"],
-            "resposta": "Júpiter"
-        }
-    ]
-    return random.choice(quizzes)
-
-# ================= Postagens automáticas =================
 scheduler = BackgroundScheduler()
-
-def postar_musica():
-    musica = pegar_musica()
-    texto = f"🎵 Música: {musica['nome']} - enviada por {BOT_NOME}\n{musica['url']}"
-    send_telegram_message(CHAT_ID, texto)
-
-def postar_piada():
-    piada = pegar_piada()
-    send_telegram_message(CHAT_ID, f"😂 Piada do dia: {piada}")
-
-def postar_meme():
-    meme = pegar_meme()
-    send_telegram_message(CHAT_ID, f"😆 Meme do dia: {meme}")
-
-def postar_quiz():
-    quiz = pegar_quiz()
-    opcoes = "\n".join([f"{i+1}. {o}" for i, o in enumerate(quiz["opcoes"])])
-    texto = f"📝 Quiz: {quiz['pergunta']}\n{opcoes}\nResponda digitando o número da opção!"
-    send_telegram_message(CHAT_ID, texto)
-
-# Agendamento
-scheduler.add_job(postar_musica, 'interval', hours=3)
-scheduler.add_job(postar_piada, 'interval', hours=6)
-scheduler.add_job(postar_meme, 'interval', hours=6)
-scheduler.add_job(postar_quiz, 'interval', hours=8)
-scheduler.add_job(limpar_cache, 'interval', days=7)
+scheduler.add_job(limpar_cache, 'interval', days=7)  # Limpa cache a cada semana
 scheduler.start()
 
-# ================= Webhook =================
-@app.route(f"/{TOKEN}", methods=["POST"])
-def webhook():
-    data = request.get_json()
-    if "message" in data:
-        mensagem = data["message"]
-        chat_id = mensagem["chat"]["id"]
-        texto = mensagem.get("text", "").strip()
+# FUNÇÃO PARA ENVIAR MENSAGENS
+def send_telegram_message(chat_id, text, reply_id=None):
+    data = {"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}
+    if reply_id:
+        data["reply_to_message_id"] = reply_id
+    requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", data=data)
 
-        # Comandos
-        if texto.lower() == "/start":
-            send_telegram_message(chat_id, f"Olá! Eu sou {BOT_NOME}. Use /musica para ouvir músicas, /piada para piadas, /quiz para quizzes e /meme para memes!")
-        elif texto.lower().startswith("/musica"):
-            nome = texto[7:].strip()
-            m = pegar_musica(nome if nome else None)
-            if m:
-                send_telegram_message(chat_id, f"🎵 Música: {m['nome']} - enviada por {BOT_NOME}\n{m['url']}")
-            else:
-                send_telegram_message(chat_id, "Desculpe, não encontrei essa música 😢")
-        elif texto.lower() == "/piada":
-            send_telegram_message(chat_id, f"😂 Piada: {pegar_piada()}")
-        elif texto.lower() == "/meme":
-            send_telegram_message(chat_id, f"😆 Meme: {pegar_meme()}")
-        elif texto.lower() == "/quiz":
-            quiz = pegar_quiz()
-            opcoes = "\n".join([f"{i+1}. {o}" for i, o in enumerate(quiz["opcoes"])])
-            send_telegram_message(chat_id, f"📝 Quiz: {quiz['pergunta']}\n{opcoes}\nResponda digitando o número da opção!")
+# FUNÇÃO PARA ENVIAR MÚSICA
+def send_musica(chat_id, nome_musica):
+    with cache_lock:
+        if nome_musica in cache["musicas"]:
+            musica_url = cache["musicas"][nome_musica]
         else:
-            # Se escrever nome de música diretamente
-            m = pegar_musica(texto)
-            if m:
-                send_telegram_message(chat_id, f"🎵 Música: {m['nome']} - enviada por {BOT_NOME}\n{m['url']}")
+            # Exemplo de API de música fictícia
+            res = requests.get(f"https://api.musicas.com/buscar?nome={nome_musica}")
+            if res.status_code != 200:
+                send_telegram_message(chat_id, f"Não encontrei a música *{nome_musica}* 😢")
+                return
+            data = res.json()
+            musica_url = data.get("url")
+            cache["musicas"][nome_musica] = musica_url
+    send_telegram_message(chat_id, f"🎵 *{nome_musica}* via *{BOT_NAME}*\n{musica_url}")
+
+# FUNÇÃO PARA PEGAR PIADA
+def send_piada(chat_id):
+    with cache_lock:
+        res = requests.get("https://api.piadas.com/random")
+        if res.status_code != 200:
+            send_telegram_message(chat_id, "Não consegui buscar uma piada 😢")
+            return
+        data = res.json()
+        piada = data.get("texto", "Não achei nenhuma piada 😢")
+        cache["piadas"][piada] = True
+    send_telegram_message(chat_id, f"😂 {piada}")
+
+# FUNÇÃO PARA PEGAR MEME
+def send_meme(chat_id):
+    with cache_lock:
+        res = requests.get("https://api.memes.com/random")
+        if res.status_code != 200:
+            send_telegram_message(chat_id, "Não consegui buscar um meme 😢")
+            return
+        data = res.json()
+        meme_url = data.get("url")
+        cache["memes"][meme_url] = True
+    send_telegram_message(chat_id, f"🤣 Meme do dia: {meme_url}")
+
+# FUNÇÃO PARA QUIZ
+def send_quiz(chat_id):
+    res = requests.get("https://api.quiz.com/random")
+    if res.status_code != 200:
+        send_telegram_message(chat_id, "Não consegui buscar um quiz 😢")
+        return
+    data = res.json()
+    pergunta = data.get("pergunta")
+    opcoes = data.get("opcoes")  # lista de strings
+    if not pergunta or not opcoes:
+        return
+    cache["quizzes"][pergunta] = opcoes
+    texto = f"❓ *Quiz*: {pergunta}\n"
+    for i, opc in enumerate(opcoes, 1):
+        texto += f"{i}. {opc}\n"
+    send_telegram_message(chat_id, texto)
+
+# ROTA DO WEBHOOK
+@app.route(f"/{BOT_TOKEN}", methods=["POST"])
+def webhook():
+    update = request.get_json()
+    if "message" in update:
+        msg = update["message"]
+        chat_id = msg["chat"]["id"]
+        text = msg.get("text", "").strip()
+
+        # COMANDOS
+        if text.lower() == "/start":
+            send_telegram_message(chat_id, f"Olá! Eu sou o *{BOT_NAME}* 🎉\nUse /musica para tocar músicas, ou diga o nome de uma música!")
+        elif text.lower().startswith("/musica"):
+            nome_musica = text[len("/musica"):].strip()
+            if nome_musica:
+                send_musica(chat_id, nome_musica)
+            else:
+                send_telegram_message(chat_id, "Por favor, envie o nome da música após o comando /musica")
+        # PEDIR MÚSICA DIGITANDO NOME
+        elif "musica" in text.lower():
+            send_musica(chat_id, text)
+        # PIADA
+        elif "piada" in text.lower():
+            send_piada(chat_id)
+        # MEME
+        elif "meme" in text.lower():
+            send_meme(chat_id)
+        # QUIZ
+        elif "quiz" in text.lower():
+            send_quiz(chat_id)
 
     return {"ok": True}
 
-@app.route("/", methods=["GET"])
-def index():
-    return "Bot está online!"
+# POSTAGENS AUTOMÁTICAS
+def postar_automaticamente():
+    if CHAT_ID:
+        send_piada(CHAT_ID)
+        send_meme(CHAT_ID)
+        send_quiz(CHAT_ID)
+
+scheduler.add_job(postar_automaticamente, 'interval', hours=6)  # postagens a cada 6h
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    print(f"{BOT_NAME} rodando com cache, música, piada, quiz, memes e postagens automáticas! 🎉")
+    app.run(host="0.0.0.0", port=PORT)
