@@ -1,5 +1,4 @@
-Flask==3.1.2
+Flask
 python-telegram-bot==20.6
-APScheduler==3.10.4
-requests==2.32.3
-python-dotenv==1.0.0
+requests
+gunicorn
