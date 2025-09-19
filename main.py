@@ -3,15 +3,19 @@ import random
 import requests
 from flask import Flask, request
 from telegram import Update, Bot
-from telegram.ext import Dispatcher, CommandHandler, CallbackContext, PollAnswerHandler
+from telegram.ext import Application, CommandHandler, PollAnswerHandler, ContextTypes
 
-TOKEN = os.getenv("BOT_TOKEN")  # defina no Render
+# =====================
+# Config
+# =====================
+TOKEN = os.getenv("BOT_TOKEN")
 bot = Bot(token=TOKEN)
 
 app = Flask(__name__)
+application = Application.builder().token(TOKEN).build()
 
 # =====================
-# Sistema multilíngue
+# Traduções
 # =====================
 TRANSLATIONS = {
     "pt": {
@@ -35,7 +39,7 @@ def t(user_lang, key, **kwargs):
     return TRANSLATIONS[lang][key].format(**kwargs)
 
 # =====================
-# Perguntas APIs
+# Funções auxiliares
 # =====================
 def get_question_otdb(category=None, difficulty="easy"):
     url = f"https://opentdb.com/api.php?amount=1&type=multiple&difficulty={difficulty}"
@@ -63,16 +67,19 @@ def get_difficulty(score):
     return "hard"
 
 # =====================
-# Handlers
+# Estado do jogo
 # =====================
 user_scores = {}     # {user_id: pontos}
-active_quizzes = {}  # {poll_id: {"resposta": str, "user_id": int}}
+active_quizzes = {}  # {poll_id: {"resposta": str, "user_id": int, "lang": str, "correct_index": int}}
 
-def start(update: Update, context: CallbackContext):
+# =====================
+# Handlers
+# =====================
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = update.effective_user.language_code or "pt"
-    update.message.reply_text(t(lang, "welcome"))
+    await update.message.reply_text(t(lang, "welcome"))
 
-def quiz(update: Update, context: CallbackContext):
+async def quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = update.effective_user.language_code or "pt"
     score = user_scores.get(user_id, 0)
@@ -82,18 +89,15 @@ def quiz(update: Update, context: CallbackContext):
 
     if category == "jservice":
         pergunta, opcoes, resposta, categoria = get_question_jservice()
-        # Como jService é resposta aberta, tratamos como enquete fake de múltipla escolha
-        opcoes = [resposta, "Não sei"]
+        opcoes = [resposta, "Não sei", "Talvez", "Outra opção"]  # simula múltipla escolha
         correct_index = 0
         categoria = t(lang, "jservice_label")
     else:
         pergunta, opcoes, resposta, categoria = get_question_otdb(category, difficulty)
         correct_index = opcoes.index(resposta)
 
-    # Enviar quiz oficial
-    msg = f"❓ ({categoria}, {difficulty})"
-    poll = update.message.reply_poll(
-        question=pergunta,
+    poll = await update.message.reply_poll(
+        question=f"❓ ({categoria}, {difficulty})\n\n{pergunta}",
         options=opcoes,
         type="quiz",
         correct_option_id=correct_index,
@@ -103,10 +107,11 @@ def quiz(update: Update, context: CallbackContext):
     active_quizzes[poll.poll.id] = {
         "resposta": resposta,
         "user_id": user_id,
-        "lang": lang
+        "lang": lang,
+        "correct_index": correct_index
     }
 
-def handle_poll_answer(update: Update, context: CallbackContext):
+async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     answer = update.poll_answer
     poll_id = answer.poll_id
     user_id = answer.user.id
@@ -117,25 +122,34 @@ def handle_poll_answer(update: Update, context: CallbackContext):
 
     lang = data["lang"]
     resposta_correta = data["resposta"]
+    correct_index = data["correct_index"]
 
     score = user_scores.get(user_id, 0)
 
-    if answer.option_ids and answer.option_ids[0] == 0 and resposta_correta.lower() in [resposta_correta.lower()]:
+    if answer.option_ids and answer.option_ids[0] == correct_index:
         score += 10
-        bot.send_message(user_id, t(lang, "correct", score=score))
-    elif resposta_correta:
+        await bot.send_message(user_id, t(lang, "correct", score=score))
+    else:
         score = max(score - 5, 0)
-        bot.send_message(user_id, t(lang, "wrong", resposta=resposta_correta, score=score))
+        await bot.send_message(user_id, t(lang, "wrong", resposta=resposta_correta, score=score))
 
     user_scores[user_id] = score
     del active_quizzes[poll_id]
 
-def score(update: Update, context: CallbackContext):
+async def score_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = update.effective_user.language_code or "pt"
     score = user_scores.get(user_id, 0)
     difficulty = get_difficulty(score)
-    update.message.reply_text(t(lang, "score", score=score, nivel=difficulty))
+    await update.message.reply_text(t(lang, "score", score=score, nivel=difficulty))
+
+# =====================
+# Registra handlers
+# =====================
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CommandHandler("quiz", quiz))
+application.add_handler(CommandHandler("score", score_cmd))
+application.add_handler(PollAnswerHandler(handle_poll_answer))
 
 # =====================
 # Flask Webhook
@@ -143,12 +157,7 @@ def score(update: Update, context: CallbackContext):
 @app.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
     update = Update.de_json(request.get_json(force=True), bot)
-    dp = Dispatcher(bot, None, workers=0)
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("quiz", quiz))
-    dp.add_handler(CommandHandler("score", score))
-    dp.add_handler(PollAnswerHandler(handle_poll_answer))
-    dp.process_update(update)
+    application.update_queue.put_nowait(update)
     return "ok"
 
 @app.route("/")
