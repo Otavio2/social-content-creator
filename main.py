@@ -185,10 +185,5 @@ async def register_webhook():
     await bot.set_webhook(url)
     print(f"📡 Webhook registrado: {url}")
 
-# =====================
-# Inicialização
-# =====================
 if __name__ == "__main__":
-    # Registra webhook async antes de iniciar Flask
     asyncio.run(register_webhook())
-    # O Render vai rodar com Gunicorn
