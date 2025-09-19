@@ -19,13 +19,12 @@ TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN:
     raise RuntimeError("❌ BOT_TOKEN não definido! Configure no Render em Environment Variables.")
 
-# Base URL do Render (ajuste automaticamente via env do Render)
 BASE_URL = os.getenv("RENDER_EXTERNAL_URL", "https://social-content-creator.onrender.com")
 
 bot = Bot(token=TOKEN)
 app = Flask(__name__)
 
-# Application sem Updater (só webhook)
+# Application sem Updater (somente webhook)
 application = Application.builder().token(TOKEN).updater(None).build()
 
 # =====================
@@ -175,7 +174,7 @@ def webhook():
 
 @app.route("/")
 def home():
-    return "Bot de Quiz com votação real rodando! 🚀"
+    return "Bot de Quiz rodando no Render! 🚀"
 
 # =====================
 # Registrar webhook automaticamente
@@ -185,5 +184,8 @@ async def register_webhook():
     await bot.set_webhook(url)
     print(f"📡 Webhook registrado: {url}")
 
+# =====================
+# Inicialização
+# =====================
 if __name__ == "__main__":
     asyncio.run(register_webhook())
