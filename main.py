@@ -170,9 +170,9 @@ application.add_handler(PollAnswerHandler(handle_poll_answer))
 @app.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
     update = Update.de_json(request.get_json(force=True), bot)
-    application.update_queue.put_nowait(update)
-    return "ok", 200
-
+    dispatcher.process_update(update)
+    return "ok", 200  # <- SEMPRE responder algo!
+    
 @app.route("/")
 def home():
     return "Bot de Quiz com votação real rodando! 🚀"
