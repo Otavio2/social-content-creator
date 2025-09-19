@@ -8,7 +8,17 @@ from telegram.ext import Application, CommandHandler, PollAnswerHandler, Context
 # =====================
 # Config
 # =====================
+# Tenta carregar .env se existir (local). No Render não faz diferença.
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 TOKEN = os.getenv("BOT_TOKEN")
+if not TOKEN:
+    raise RuntimeError("❌ BOT_TOKEN não definido! Configure no Render em Environment Variables.")
+
 bot = Bot(token=TOKEN)
 
 app = Flask(__name__)
