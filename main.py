@@ -22,7 +22,9 @@ if not TOKEN:
 bot = Bot(token=TOKEN)
 
 app = Flask(__name__)
-application = Application.builder().token(TOKEN).build()
+
+# Importante: desabilita o Updater (polling) porque vamos usar Webhook
+application = Application.builder().token(TOKEN).updater(None).build()
 
 # =====================
 # Traduções
