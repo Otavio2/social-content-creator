@@ -171,7 +171,7 @@ application.add_handler(PollAnswerHandler(handle_poll_answer))
 def webhook():
     update = Update.de_json(request.get_json(force=True), bot)
     application.update_queue.put_nowait(update)
-    return "ok"
+    return "ok", 200
 
 @app.route("/")
 def home():
