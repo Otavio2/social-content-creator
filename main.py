@@ -1,5 +1,6 @@
 import os
 import random
+import asyncio
 import requests
 from flask import Flask, request
 from telegram import Update, Bot
@@ -18,13 +19,13 @@ TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN:
     raise RuntimeError("❌ BOT_TOKEN não definido! Configure no Render em Environment Variables.")
 
-# URL base do Render (ajuste se mudar o nome do serviço!)
+# Base URL do Render (ajuste automaticamente via env do Render)
 BASE_URL = os.getenv("RENDER_EXTERNAL_URL", "https://social-content-creator.onrender.com")
 
 bot = Bot(token=TOKEN)
 app = Flask(__name__)
 
-# Importante: desabilita o Updater (usamos só webhook no Render)
+# Application sem Updater (só webhook)
 application = Application.builder().token(TOKEN).updater(None).build()
 
 # =====================
@@ -82,8 +83,8 @@ def get_difficulty(score):
 # =====================
 # Estado do jogo
 # =====================
-user_scores = {}     # {user_id: pontos}
-active_quizzes = {}  # {poll_id: {"resposta": str, "user_id": int, "lang": str, "correct_index": int}}
+user_scores = {}
+active_quizzes = {}
 
 # =====================
 # Handlers
@@ -102,7 +103,7 @@ async def quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if category == "jservice":
         pergunta, opcoes, resposta, categoria = get_question_jservice()
-        opcoes = [resposta, "Não sei", "Talvez", "Outra opção"]  # simula múltipla escolha
+        opcoes = [resposta, "Não sei", "Talvez", "Outra opção"]
         correct_index = 0
         categoria = t(lang, "jservice_label")
     else:
@@ -136,7 +137,6 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
     lang = data["lang"]
     resposta_correta = data["resposta"]
     correct_index = data["correct_index"]
-
     score = user_scores.get(user_id, 0)
 
     if answer.option_ids and answer.option_ids[0] == correct_index:
@@ -170,27 +170,25 @@ application.add_handler(PollAnswerHandler(handle_poll_answer))
 @app.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
     update = Update.de_json(request.get_json(force=True), bot)
-    dispatcher.process_update(update)
-    return "ok", 200  # <- SEMPRE responder algo!
-    
+    application.update_queue.put_nowait(update)
+    return "ok", 200
+
 @app.route("/")
 def home():
     return "Bot de Quiz com votação real rodando! 🚀"
 
-# Endpoint opcional para forçar webhook manualmente
-@app.route("/setwebhook")
-def set_webhook():
+# =====================
+# Registrar webhook automaticamente
+# =====================
+async def register_webhook():
     url = f"{BASE_URL}/{TOKEN}"
-    success = bot.set_webhook(url)
-    return f"Webhook {'OK' if success else 'FAIL'} → {url}"
+    await bot.set_webhook(url)
+    print(f"📡 Webhook registrado: {url}")
 
 # =====================
 # Inicialização
 # =====================
 if __name__ == "__main__":
-    # Seta webhook automaticamente no startup
-    webhook_url = f"{BASE_URL}/{TOKEN}"
-    print(f"📡 Registrando webhook em: {webhook_url}")
-    bot.set_webhook(webhook_url)
-
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+    # Registra webhook async antes de iniciar Flask
+    asyncio.run(register_webhook())
+    # O Render vai rodar com Gunicorn
