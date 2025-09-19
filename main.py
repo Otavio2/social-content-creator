@@ -8,7 +8,6 @@ from telegram.ext import Application, CommandHandler, PollAnswerHandler, Context
 # =====================
 # Config
 # =====================
-# Tenta carregar .env se existir (local). No Render não faz diferença.
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -19,11 +18,13 @@ TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN:
     raise RuntimeError("❌ BOT_TOKEN não definido! Configure no Render em Environment Variables.")
 
-bot = Bot(token=TOKEN)
+# URL base do Render (ajuste se mudar o nome do serviço!)
+BASE_URL = os.getenv("RENDER_EXTERNAL_URL", "https://social-content-creator.onrender.com")
 
+bot = Bot(token=TOKEN)
 app = Flask(__name__)
 
-# Importante: desabilita o Updater (polling) porque vamos usar Webhook
+# Importante: desabilita o Updater (usamos só webhook no Render)
 application = Application.builder().token(TOKEN).updater(None).build()
 
 # =====================
@@ -176,5 +177,20 @@ def webhook():
 def home():
     return "Bot de Quiz com votação real rodando! 🚀"
 
+# Endpoint opcional para forçar webhook manualmente
+@app.route("/setwebhook")
+def set_webhook():
+    url = f"{BASE_URL}/{TOKEN}"
+    success = bot.set_webhook(url)
+    return f"Webhook {'OK' if success else 'FAIL'} → {url}"
+
+# =====================
+# Inicialização
+# =====================
 if __name__ == "__main__":
+    # Seta webhook automaticamente no startup
+    webhook_url = f"{BASE_URL}/{TOKEN}"
+    print(f"📡 Registrando webhook em: {webhook_url}")
+    bot.set_webhook(webhook_url)
+
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
