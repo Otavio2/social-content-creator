@@ -187,5 +187,6 @@ async def register_webhook():
 # =====================
 # Inicialização
 # =====================
+# --- Main ---
 if __name__ == "__main__":
-    asyncio.run(register_webhook())
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
