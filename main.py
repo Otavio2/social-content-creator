@@ -1,10 +1,13 @@
 import os
 import random
-import asyncio
 import requests
-from flask import Flask, request
 from telegram import Update, Bot
-from telegram.ext import Application, CommandHandler, PollAnswerHandler, ContextTypes
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    PollAnswerHandler,
+    ContextTypes,
+)
 
 # =====================
 # Config
@@ -22,10 +25,9 @@ if not TOKEN:
 BASE_URL = os.getenv("RENDER_EXTERNAL_URL", "https://social-content-creator.onrender.com")
 
 bot = Bot(token=TOKEN)
-app = Flask(__name__)
 
-# Application sem Updater (somente webhook)
-application = Application.builder().token(TOKEN).updater(None).build()
+# Application nativo
+application = Application.builder().token(TOKEN).build()
 
 # =====================
 # Traduções
@@ -164,46 +166,13 @@ application.add_handler(CommandHandler("score", score_cmd))
 application.add_handler(PollAnswerHandler(handle_poll_answer))
 
 # =====================
-# Flask Webhook
-# =====================
-import os
-from flask import Flask, request
-from telegram import Update
-from telegram.ext import Application, CommandHandler
-
-# Token do bot vem do Render (Environment Variables)
-TOKEN = os.getenv("TOKEN")
-
-app = Flask(__name__)
-
-# Cria a aplicação do bot
-application = Application.builder().token(TOKEN).build()
-
-# --- Handlers de exemplo ---
-async def start(update, context):
-    await update.message.reply_text("🤖 Olá! Seu bot no Render está online.")
-
-application.add_handler(CommandHandler("start", start))
-
-# --- Rotas Flask ---
-@app.route(f"/{TOKEN}", methods=["POST"])
-def webhook():
-    """Endpoint que o Telegram chama quando chega uma atualização"""
-    update = Update.de_json(request.get_json(force=True), application.bot)
-    application.update_queue.put_nowait(update)  # processa em segundo plano
-    return "OK", 200  # resposta rápida pro Telegram
-
-@app.route("/", methods=["GET"])
-def home():
-    return "✅ Bot está online no Render!", 200
-
-if __name__ == "__main__":
-    # Apenas para rodar localmente (no Render o Gunicorn assume)
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-
-# =====================
 # Inicialização
 # =====================
-# --- Main ---
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    PORT = int(os.environ.get("PORT", 5000))
+    application.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        url_path=TOKEN,
+        webhook_url=f"{BASE_URL}/{TOKEN}",  # onde o Telegram vai mandar updates
+    )
