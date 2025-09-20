@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: social-content-creator
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn main:app --bind 0.0.0.0:$PORT
+    plan: free
+    envVars:
+      - key: TOKEN
+        sync: false  # Configure no painel do Render
