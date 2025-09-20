@@ -166,23 +166,40 @@ application.add_handler(PollAnswerHandler(handle_poll_answer))
 # =====================
 # Flask Webhook
 # =====================
+import os
+from flask import Flask, request
+from telegram import Update
+from telegram.ext import Application, CommandHandler
+
+# Token do bot vem do Render (Environment Variables)
+TOKEN = os.getenv("TOKEN")
+
+app = Flask(__name__)
+
+# Cria a aplicação do bot
+application = Application.builder().token(TOKEN).build()
+
+# --- Handlers de exemplo ---
+async def start(update, context):
+    await update.message.reply_text("🤖 Olá! Seu bot no Render está online.")
+
+application.add_handler(CommandHandler("start", start))
+
+# --- Rotas Flask ---
 @app.route(f"/{TOKEN}", methods=["POST"])
 def webhook():
-    update = Update.de_json(request.get_json(force=True), bot)
-    application.update_queue.put_nowait(update)
-    return "ok", 200
+    """Endpoint que o Telegram chama quando chega uma atualização"""
+    update = Update.de_json(request.get_json(force=True), application.bot)
+    application.update_queue.put_nowait(update)  # processa em segundo plano
+    return "OK", 200  # resposta rápida pro Telegram
 
-@app.route("/")
+@app.route("/", methods=["GET"])
 def home():
-    return "Bot de Quiz rodando no Render! 🚀"
+    return "✅ Bot está online no Render!", 200
 
-# =====================
-# Registrar webhook automaticamente
-# =====================
-async def register_webhook():
-    url = f"{BASE_URL}/{TOKEN}"
-    await bot.set_webhook(url)
-    print(f"📡 Webhook registrado: {url}")
+if __name__ == "__main__":
+    # Apenas para rodar localmente (no Render o Gunicorn assume)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
 
 # =====================
 # Inicialização
